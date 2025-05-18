@@ -1,0 +1,129 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Barcode Asset Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+  <style>
+    body { font-family: sans-serif; margin: 20px; }
+    #reader { width: 100%; max-width: 500px; margin: auto; display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f4f4f4; }
+    button { margin: 10px 5px; padding: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Barcode Asset Scanner</h1>
+
+  <input type="file" id="csvUpload" accept=".csv" />
+  <button onclick="exportScannedData()">Export Scanned CSV</button>
+  <button onclick="showReconciliation()">Show Reconciliation</button>
+  <button id="startScanBtn" onclick="startScanning()" disabled>Start Scanning</button>
+
+  <div id="reader"></div>
+  <div id="scan-result"></div>
+
+  <h2>Scanned Assets</h2>
+  <table id="scannedTable">
+    <thead>
+      <tr><th>Barcode</th><th>Asset Name</th><th>Asset Area</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h2>Reconciliation</h2>
+  <table id="reconcileTable">
+    <thead>
+      <tr><th>Barcode</th><th>Asset Name</th><th>Asset Area</th><th>Status</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    let assetList = {}; // barcode -> { name, area }
+    let scannedBarcodes = new Set();
+    let html5QrCode;
+
+    document.getElementById('csvUpload').addEventListener('change', function (e) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const lines = reader.result.split('\n').map(line => line.trim()).filter(Boolean);
+        for (let i = 1; i < lines.length; i++) {
+          const [barcode, name, area] = lines[i].split(',');
+          assetList[barcode.trim()] = { name: name.trim(), area: area.trim() };
+        }
+        alert("CSV Loaded Successfully. You can now start scanning.");
+        document.getElementById("startScanBtn").disabled = false;
+      };
+      reader.readAsText(e.target.files[0]);
+    });
+
+    function startScanning() {
+      document.getElementById("reader").style.display = "block";
+      html5QrCode = new Html5Qrcode("reader");
+      Html5Qrcode.getCameras().then(devices => {
+        if (devices && devices.length) {
+          html5QrCode.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: 250 },
+            onScanSuccess
+          );
+        } else {
+          alert("No camera found on this device.");
+        }
+      }).catch(err => {
+        alert("Camera access error: " + err);
+      });
+    }
+
+    function updateScannedTable(barcode, name, area) {
+      const row = document.createElement("tr");
+      row.innerHTML = `<td>${barcode}</td><td>${name}</td><td>${area}</td>`;
+      document.querySelector("#scannedTable tbody").appendChild(row);
+    }
+
+    function showReconciliation() {
+      const table = document.querySelector("#reconcileTable tbody");
+      table.innerHTML = '';
+      for (const barcode in assetList) {
+        const { name, area } = assetList[barcode];
+        const status = scannedBarcodes.has(barcode) ? "Scanned" : "Missing";
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${barcode}</td><td>${name}</td><td>${area}</td><td>${status}</td>`;
+        table.appendChild(row);
+      }
+    }
+
+    function exportScannedData() {
+      let csv = "Asset Barcode,Asset Name,Asset Area\n";
+      for (const barcode of scannedBarcodes) {
+        const { name, area } = assetList[barcode];
+        csv += `${barcode},${name},${area}\n`;
+      }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'scanned_assets.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function onScanSuccess(decodedText) {
+      if (!scannedBarcodes.has(decodedText)) {
+        scannedBarcodes.add(decodedText);
+        const asset = assetList[decodedText];
+        if (asset) {
+          updateScannedTable(decodedText, asset.name, asset.area);
+          document.getElementById("scan-result").innerText = `Scanned: ${decodedText} (${asset.name}, ${asset.area})`;
+        } else {
+          document.getElementById("scan-result").innerText = `Scanned: ${decodedText} (Unknown)`;
+        }
+      }
+    }
+  </script>
+</body>
+</html>
